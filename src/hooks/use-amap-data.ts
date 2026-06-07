@@ -131,13 +131,15 @@ export function useWaypointResolver(
 
         setIsConfigured(true);
         const resolved: Waypoint[] = [];
-        for (let i = 0; i < inputs.length; i += 3) {
-          const batch = inputs.slice(i, i + 3);
-          const batchResults = await Promise.all(
-            batch.map((wp) => searchWaypoint(wp.name, wp.id, wp.order, targetCity)),
-          );
+        // Process one at a time with a small delay to respect AMap's QPS limit (1 req/s for free tier)
+        for (let i = 0; i < inputs.length; i++) {
+          const wp = inputs[i];
+          const result = await searchWaypoint(wp.name, wp.id, wp.order, targetCity);
           if (cancelled || currentResolveId !== resolveIdRef.current) return;
-          resolved.push(...batchResults);
+          resolved.push(result);
+          if (i < inputs.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+          }
         }
         setWaypoints(resolved);
 

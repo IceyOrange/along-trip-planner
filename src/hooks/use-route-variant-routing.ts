@@ -180,7 +180,40 @@ async function fetchSegmentRoute(
     return { ...segment, status: "failed" };
   }
 
-  const metrics = extractMetrics(data);
+  let metrics = extractMetrics(data);
+
+  // Fallback to driving for any non-driving mode that returns no valid route
+  // (e.g. cross-river transit where AMap has no feasible bus route)
+  if (!metrics.distanceText && !metrics.durationText && segment.mode !== "driving") {
+    console.log("[RouteVariant] falling back to driving due to empty metrics, mode:", segment.mode);
+    const drivingResponse = await fetch("/api/amap/route", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        origin: locationString(from.location),
+        destination: locationString(to.location),
+        mode: "driving",
+        city,
+        city1: city,
+        city2: city,
+      }),
+    });
+    const drivingData = await drivingResponse.json().catch(() => null);
+    if (drivingResponse.ok && drivingData?.configured !== false) {
+      metrics = extractMetrics(drivingData);
+      // Preserve original mode in label but mark as ready with driving metrics
+      return {
+        ...segment,
+        modeLabel: modeLabels[segment.mode],
+        distanceText: metrics.distanceText,
+        durationText: metrics.durationText,
+        costText: metrics.costText,
+        polyline: metrics.polyline,
+        status: metrics.distanceText || metrics.durationText ? "ready" : "failed",
+      };
+    }
+  }
+
   return {
     ...segment,
     modeLabel: modeLabels[segment.mode],
