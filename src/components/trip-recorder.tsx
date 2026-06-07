@@ -97,9 +97,62 @@ export function TripRecorder() {
   const [mediaText, setMediaText] = useState("");
   const [showTextInput, setShowTextInput] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [rollingSummary, setRollingSummary] = useState<string | null>(null);
+  const compressPendingRef = useRef(false);
 
   const autoPlanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTranscriptLenRef = useRef(0);
+
+  /* -------------------- Conversation compression -------------------- */
+
+  const compressConversation = useCallback(async () => {
+    if (compressPendingRef.current || transcriptLog.length < 6) return;
+    compressPendingRef.current = true;
+    console.log("[TripRecorder] compressing conversation, entries:", transcriptLog.length);
+    try {
+      const response = await fetch("/api/ai/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: "compress",
+          recentTurns: transcriptLog.map((t) => ({
+            id: t.id,
+            userId: "user",
+            userName: "讨论",
+            text: t.text,
+            createdAt: Date.now(),
+          })),
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        configured?: boolean;
+        rollingSummary?: string;
+        error?: string;
+      };
+      if (response.ok && data.rollingSummary) {
+        setRollingSummary(data.rollingSummary);
+        setTranscriptLog((prev) => prev.slice(-2)); // keep last 2 entries for recency
+        console.log("[TripRecorder] compression done, summary:", data.rollingSummary.slice(0, 100));
+      } else {
+        console.warn("[TripRecorder] compression failed:", data.error);
+      }
+    } catch (err) {
+      console.warn("[TripRecorder] compression error:", err);
+    } finally {
+      compressPendingRef.current = false;
+    }
+  }, [transcriptLog]);
+
+  /* -------------------- Auto-compress when transcript grows -------------------- */
+
+  useEffect(() => {
+    if (transcriptLog.length >= 6 && !compressPendingRef.current) {
+      const timer = setTimeout(() => {
+        void compressConversation();
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [transcriptLog, compressConversation]);
 
   /* -------------------- Notice helper -------------------- */
 
@@ -181,6 +234,7 @@ export function TripRecorder() {
             },
           ],
           existingWaypoints,
+          rollingSummary,
         }),
       });
       const data = (await response.json().catch(() => ({}))) as {
@@ -252,7 +306,10 @@ export function TripRecorder() {
     setMediaText("");
     setShowTextInput(false);
     void requestPlan(text);
-  }, [mediaText, requestPlan]);
+    setTimeout(() => {
+      void compressConversation();
+    }, 500);
+  }, [mediaText, requestPlan, compressConversation]);
 
   /* -------------------- Recording control -------------------- */
 
@@ -276,6 +333,8 @@ export function TripRecorder() {
     setSelectedWpId(null);
     setMediaText("");
     setShowTextInput(false);
+    setRollingSummary(null);
+    compressPendingRef.current = false;
     asr.clear();
     lastTranscriptLenRef.current = 0;
     showNotice("已清空记录");

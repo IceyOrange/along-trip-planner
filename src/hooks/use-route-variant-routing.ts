@@ -81,23 +81,17 @@ function readNumber(value: unknown): number | undefined {
 }
 
 function extractMetrics(data: unknown): RouteMetrics {
-  const root = data as {
-    data?: {
-      route?: {
-        taxi_cost?: unknown;
-        paths?: Array<Record<string, unknown>>;
-        transits?: Array<Record<string, unknown>>;
-      };
-    };
-  };
-  const route = root.data?.route;
+  const wrapper = data as { data?: { status?: string; info?: string; route?: { taxi_cost?: unknown; paths?: Array<Record<string, unknown>>; transits?: Array<Record<string, unknown>> } } };
+  const amapData = wrapper.data;
+  if (amapData?.status !== "1") {
+    console.warn("[RouteVariant] AMap route error:", amapData?.info, "data keys:", amapData ? Object.keys(amapData) : "null");
+    return { distanceText: null, durationText: null, costText: null };
+  }
+  const route = amapData?.route;
   const path = route?.paths?.[0] || route?.transits?.[0];
   if (!path) {
-    return {
-      distanceText: null,
-      durationText: null,
-      costText: null,
-    };
+    console.warn("[RouteVariant] No path/transit found in route response. route keys:", route ? Object.keys(route) : "null");
+    return { distanceText: null, durationText: null, costText: null };
   }
 
   const cost = path.cost as Record<string, unknown> | undefined;
@@ -105,6 +99,12 @@ function extractMetrics(data: unknown): RouteMetrics {
 
   // AMap v5: duration is inside cost.duration, not path.duration
   const durationRaw = cost?.duration ?? path.duration;
+
+  console.log("[RouteVariant] extracted metrics:", {
+    distance: formatDistance(path.distance),
+    duration: formatDuration(durationRaw),
+    polylinePoints: polyline.length,
+  });
 
   return {
     distanceText: formatDistance(path.distance),
@@ -130,8 +130,11 @@ async function fetchSegmentRoute(
   city: string,
 ): Promise<RouteSegmentSnapshot> {
   if (!from.location || !to.location) {
+    console.warn("[RouteVariant] missing location:", segment.fromWaypointId, "->", segment.toWaypointId);
     return { ...segment, status: "failed" };
   }
+
+  console.log("[RouteVariant] fetching route:", from.name, "->", to.name, "mode:", segment.mode, "city:", city);
 
   let response = await fetch("/api/amap/route", {
     method: "POST",
@@ -147,9 +150,12 @@ async function fetchSegmentRoute(
   });
   let data = await response.json().catch(() => null);
 
+  console.log("[RouteVariant] route API response:", response.status, "configured:", data?.configured, "info:", data?.data?.info);
+
   // Fallback to driving when walking/bicycling exceeds AMap's range limit
   const outOfRange = (data?.data?.info || "").includes("OVER_DIRECTION_RANGE");
   if (outOfRange && (segment.mode === "walking" || segment.mode === "bicycling")) {
+    console.log("[RouteVariant] falling back to driving due to range limit");
     const drivingResponse = await fetch("/api/amap/route", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -170,6 +176,7 @@ async function fetchSegmentRoute(
   }
 
   if (!response.ok || data?.configured === false) {
+    console.warn("[RouteVariant] route API failed:", response.status, data);
     return { ...segment, status: "failed" };
   }
 
@@ -243,7 +250,7 @@ export function useRouteVariantRouting(
     [resolvedWaypoints],
   );
 
-  const cacheRef = useRef<{ variantId: string; resolvedKey: string } | null>(null);
+  const cacheRef = useRef<{ variantId: string; resolvedKey: string; city: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -257,7 +264,8 @@ export function useRouteVariantRouting(
     if (
       cacheRef.current &&
       cacheRef.current.variantId === variant.id &&
-      cacheRef.current.resolvedKey === resolvedKey
+      cacheRef.current.resolvedKey === resolvedKey &&
+      cacheRef.current.city === city
     ) {
       return;
     }
@@ -283,7 +291,7 @@ export function useRouteVariantRouting(
         const updatedVariant: RouteVariantSnapshot = { ...currentVariant, segments: nextSegments as RouteSegmentSnapshot[] };
         setRoutedVariant(summarizeVariant(updatedVariant));
         setIsLoading(false);
-        cacheRef.current = { variantId: currentVariant.id, resolvedKey };
+        cacheRef.current = { variantId: currentVariant.id, resolvedKey, city };
       }
     }
 
