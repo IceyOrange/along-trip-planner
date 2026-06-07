@@ -177,7 +177,7 @@ const CORE_CONSTRAINTS = `
 2. 不要编造不存在的 POI，不要使用过于冷门或无法在高德地图上搜索到的地点。
 `;
 
-function promptForScope(scope: PlanScope, city?: string): string {
+function promptForScope(scope: PlanScope, city?: string, existingWaypoints?: PlanningWaypointSnapshot[]): string {
   if (scope === "compress") {
     return `你是旅行规划助手的对话压缩模块。将多轮对话压缩为一段不超过 200 字的摘要，保留关键决策、目的地和偏好分歧。
 输出纯 JSON：{ "rollingSummary": "摘要文本" }`;
@@ -198,6 +198,10 @@ ${CORE_CONSTRAINTS}
 
   }
 
+  const existingCtx = existingWaypoints && existingWaypoints.length > 0
+    ? `\n【以下地点已确定要加入行程，必须保留】\n${existingWaypoints.map((wp, i) => `${i + 1}. ${wp.name}${wp.description ? `（${wp.description}）` : ""}`).join("\n")}\n\n请在以上已确定地点的基础上，根据用户新讨论的内容补充或调整行程。不要删除已确定的地点，除非用户明确说不想去。新路线应包含所有已确定地点。`
+    : "";
+
   return `你是旅行规划助手的路线规划模块。根据用户讨论自由理解意图，生成 1 条最优旅行路线。
 
 请根据用户对话的上下文语义来理解：
@@ -206,7 +210,7 @@ ${CORE_CONSTRAINTS}
 - 注意用户的偏好（如轻松游、美食优先、少走路等），体现在路线设计中
 - 不要机械匹配关键词，要理解上下文语义
 
-${CORE_CONSTRAINTS}
+${CORE_CONSTRAINTS}${existingCtx}
 
 【输出格式——纯 JSON】
 {
@@ -226,7 +230,7 @@ ${CORE_CONSTRAINTS}
   ]
 }
 
-routeVariants 必须恰好包含 1 个方案，包含 3-6 个 waypoints。waypoint 的 name 必须是真实可搜索的中文 POI 名称。
+routeVariants 必须恰好包含 1 个方案。waypoint 的 name 必须是真实可搜索的中文 POI 名称。
 ${city ? `当前目标城市是 ${city}，请围绕此城市规划。` : "请先从对话中推断城市。"}`;
 }
 
@@ -258,10 +262,11 @@ export async function POST(request: Request) {
   const recentTurns = normalizeTurns(body.recentTurns || body.conversation?.recentTurns || body.discussion);
   const rollingSummary = stringValue(body.rollingSummary || body.conversation?.rollingSummary);
   const city = stringValue(body.city);
-  console.log("[AI Plan] request received:", { scope, city, turnCount: recentTurns.length });
+  const existingWaypoints = normalizeWaypoints(body.existingWaypoints);
+  console.log("[AI Plan] request received:", { scope, city, turnCount: recentTurns.length, existingCount: existingWaypoints.length });
   const discussionText = buildDiscussionText(rollingSummary, recentTurns);
   const messages = [
-    { role: "system", content: promptForScope(scope, city) },
+    { role: "system", content: promptForScope(scope, city, existingWaypoints) },
     { role: "user", content: `当前城市: ${city || "未知"}\n\n${discussionText}` },
   ];
   console.log("[AI Plan] messages built, calling DeepSeek");
@@ -314,9 +319,46 @@ export async function POST(request: Request) {
     }),
   }));
 
-  console.log("[AI Plan] returning plan with variants:", validatedVariants.length, "waypoints:", validatedVariants[0]?.waypoints?.length);
+  // Merge existing waypoints with AI-returned waypoints
+  // - Match by normalized name to avoid duplicates
+  // - Preserve existing waypoint id, location, address
+  // - Existing waypoints that AI didn't return are appended at the end
+  const normalized = (s: string) => s.replace(/[\s·]/g, "").toLowerCase();
+  const mergedVariants = validatedVariants.map(variant => {
+    const aiWps = variant.waypoints;
+    const merged: PlanningWaypointSnapshot[] = [];
+    const usedExisting = new Set<string>();
+
+    for (const aiWp of aiWps) {
+      const aiName = normalized(aiWp.name);
+      const match = existingWaypoints.find(ew => normalized(ew.name) === aiName || ew.name.includes(aiWp.name) || aiWp.name.includes(ew.name));
+      if (match) {
+        merged.push({ ...aiWp, id: match.id, name: match.name, location: match.location, address: match.address, resolveStatus: match.resolveStatus });
+        usedExisting.add(match.id);
+      } else {
+        merged.push(aiWp);
+      }
+    }
+
+    // Append any existing waypoints that AI missed
+    for (const ew of existingWaypoints) {
+      if (!usedExisting.has(ew.id)) {
+        merged.push(ew);
+      }
+    }
+
+    // Re-order and rebuild segments
+    const reordered = merged.map((wp, i) => ({ ...wp, order: i }));
+    return {
+      ...variant,
+      waypoints: reordered,
+      segments: makeSegments(reordered),
+    };
+  });
+
+  console.log("[AI Plan] returning plan with variants:", mergedVariants.length, "waypoints:", mergedVariants[0]?.waypoints?.length);
   return NextResponse.json({
     configured: true, source: "deepseek", scope, model: result.model, attempts: result.attempts,
-    plan: { ...result.parsed, routeVariants: validatedVariants },
+    plan: { ...result.parsed, routeVariants: mergedVariants },
   });
 }

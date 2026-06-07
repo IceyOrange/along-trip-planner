@@ -11,7 +11,6 @@ import {
   CloudSun,
   Clock3,
   Flag,
-  ChevronDown,
   Type,
   AlertTriangle,
   Keyboard,
@@ -23,7 +22,7 @@ import { useXfyunRealtimeASR } from "@/hooks/use-xfyun-asr";
 import { useWaypointResolver } from "@/hooks/use-amap-data";
 import { useRouteVariantRouting } from "@/hooks/use-route-variant-routing";
 import { MapCanvas } from "@/components/map-canvas";
-import type { RouteVariantSnapshot } from "@/lib/room-contracts";
+import type { RouteVariantSnapshot, RouteSegmentSnapshot, TransportMode } from "@/lib/room-contracts";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -57,6 +56,30 @@ function generateId(): string {
 }
 
 const CITIES = ["珠海", "北京", "上海", "杭州", "厦门"];
+
+function buildSegments(
+  waypoints: RouteVariantSnapshot["waypoints"],
+): RouteSegmentSnapshot[] {
+  const sorted = waypoints.slice().sort((a, b) => a.order - b.order);
+  const segments: RouteSegmentSnapshot[] = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const from = sorted[i];
+    const to = sorted[i + 1];
+    const mode: TransportMode = from.recommendedTransport || "walking";
+    segments.push({
+      id: generateId(),
+      fromWaypointId: from.id,
+      toWaypointId: to.id,
+      mode,
+      modeLabel: mode === "walking" ? "步行" : mode === "driving" ? "驾车" : mode === "transit" ? "公交/地铁" : "骑行",
+      distanceText: null,
+      durationText: null,
+      costText: null,
+      status: "pending",
+    });
+  }
+  return segments;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -125,7 +148,21 @@ export function TripRecorder() {
     const allText = logText + (extraText ? "\n" + extraText : "");
     if (allText.trim().length < 3) return;
 
-    console.log("[TripRecorder] requesting plan with text:", allText.trim().slice(0, 200));
+    // Collect existing waypoints to pass as context to AI
+    const currentVariant = plan?.routeVariants?.[0];
+    const existingWaypoints = currentVariant?.waypoints
+      ?.filter((wp) => wp.resolveStatus === "ready" || wp.resolveStatus === "searching")
+      ?.map((wp) => ({
+        id: wp.id,
+        name: wp.name,
+        order: wp.order,
+        recommendedTransport: wp.recommendedTransport,
+        description: wp.description,
+        address: wp.address,
+        location: wp.location,
+      })) || [];
+
+    console.log("[TripRecorder] requesting plan with text:", allText.trim().slice(0, 200), "existing:", existingWaypoints.length);
     showNotice("AI 正在规划行程…");
     setAgentThinking(true);
     try {
@@ -144,6 +181,7 @@ export function TripRecorder() {
               createdAt: Date.now(),
             },
           ],
+          existingWaypoints,
         }),
       });
       const data = (await response.json().catch(() => ({}))) as {
@@ -172,7 +210,7 @@ export function TripRecorder() {
     } finally {
       setAgentThinking(false);
     }
-  }, [transcriptLog, city, showNotice]);
+  }, [transcriptLog, city, showNotice, plan]);
 
   /* -------------------- Auto-trigger planning while recording -------------------- */
 
@@ -277,20 +315,22 @@ export function TripRecorder() {
       }
       const variant = prev.routeVariants[0];
       const maxOrder = Math.max(...variant.waypoints.map((w) => w.order), -1);
+      const nextWaypoints = [...variant.waypoints, {
+        id: newWp.id,
+        name: newWp.name,
+        order: maxOrder + 1,
+        description: newWp.address,
+        resolveStatus: "ready" as const,
+        recommendedTransport: "walking" as const,
+        address: newWp.address,
+        location: newWp.location,
+      }];
       return {
         ...prev,
         routeVariants: [{
           ...variant,
-          waypoints: [...variant.waypoints, {
-            id: newWp.id,
-            name: newWp.name,
-            order: maxOrder + 1,
-            description: newWp.address,
-            resolveStatus: "ready" as const,
-            recommendedTransport: "walking" as const,
-            address: newWp.address,
-            location: newWp.location,
-          }],
+          waypoints: nextWaypoints,
+          segments: buildSegments(nextWaypoints),
         }],
       };
     });
@@ -350,6 +390,7 @@ export function TripRecorder() {
             {
               ...variant,
               waypoints: reorderedWaypoints,
+              segments: buildSegments(reorderedWaypoints),
             },
           ],
         };
@@ -397,6 +438,7 @@ export function TripRecorder() {
             {
               ...variant,
               waypoints: reordered,
+              segments: buildSegments(reordered),
             },
           ],
         };
@@ -425,23 +467,7 @@ export function TripRecorder() {
           </span>
         </div>
 
-        <div className="workspace-header-actions">
-          <div className="city-selector">
-            <MapPin size={14} />
-            <select
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              aria-label="选择城市"
-            >
-              {CITIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={14} />
-          </div>
-        </div>
+        <div className="workspace-header-actions" />
       </header>
 
       {/* ===== Body ===== */}
@@ -700,61 +726,41 @@ export function TripRecorder() {
         .workspace-page > :global(.workspace-body) {
           grid-template-columns: minmax(420px, 1fr) 320px;
         }
-        .city-selector {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 10px;
-          border: 1px solid var(--ink-200);
-          border-radius: 10px;
-          background: var(--white);
-          color: var(--ink-700);
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-        .city-selector select {
-          appearance: none;
-          border: 0;
-          background: transparent;
-          color: inherit;
-          font: inherit;
-          cursor: pointer;
-          outline: none;
-        }
 
         /* Floating recorder */
         .floating-recorder {
           position: absolute;
-          bottom: 28px;
-          left: 28px;
+          bottom: 32px;
+          left: 32px;
           z-index: 200;
           display: flex;
           flex-direction: column;
           align-items: flex-start;
-          gap: 12px;
+          gap: 14px;
           max-width: 360px;
         }
+
+        /* Cards — softer, warmer */
         .floating-transcript-card {
-          background: rgba(255, 255, 255, 0.96);
-          border-radius: 16px;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.06);
-          padding: 14px 18px;
-          backdrop-filter: blur(12px);
-          border: 1px solid rgba(0, 0, 0, 0.04);
-          min-width: 200px;
-          max-width: 320px;
-          animation: float-card-in 0.3s ease;
+          background: oklch(100% 0.005 85 / 0.94);
+          border-radius: 20px;
+          box-shadow: var(--shadow-md);
+          padding: 16px 20px;
+          backdrop-filter: blur(16px);
+          border: 1px solid oklch(88% 0.02 255 / 0.4);
+          min-width: 220px;
+          max-width: 340px;
+          animation: float-card-in 0.35s cubic-bezier(0.22, 1, 0.36, 1);
         }
         @keyframes float-card-in {
-          from { opacity: 0; transform: translateY(8px); }
-          to { opacity: 1; transform: translateY(0); }
+          from { opacity: 0; transform: translateY(10px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
         }
         .floating-transcript-header {
           display: flex;
           align-items: center;
-          gap: 8px;
-          margin-bottom: 8px;
+          gap: 10px;
+          margin-bottom: 10px;
         }
         .floating-recorder-dot {
           width: 8px;
@@ -762,23 +768,26 @@ export function TripRecorder() {
           border-radius: 50%;
           background: var(--ink-300);
           flex-shrink: 0;
+          transition: background 0.3s ease;
         }
         .floating-recorder-dot.is-recording {
-          background: #ef4444;
-          animation: dot-pulse 1.2s ease-in-out infinite;
+          background: var(--coral-500);
+          animation: dot-pulse 1.4s ease-in-out infinite;
         }
         @keyframes dot-pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.35; }
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.3; transform: scale(0.85); }
         }
         .floating-transcript-status {
+          font-family: var(--font-display);
           font-size: 11px;
           font-weight: 600;
+          letter-spacing: 0.03em;
           color: var(--ink-500);
         }
         .floating-transcript-body {
-          font-size: 13px;
-          line-height: 1.5;
+          font-size: 13.5px;
+          line-height: 1.6;
           color: var(--ink-800);
           max-height: 120px;
           overflow-y: auto;
@@ -794,26 +803,27 @@ export function TripRecorder() {
           color: var(--ink-400);
         }
         .floating-transcript-error {
-          color: #ef4444;
+          color: var(--red-500);
           font-size: 12px;
         }
 
         /* Text input card */
         .floating-text-input-card {
-          background: rgba(255, 255, 255, 0.98);
-          border-radius: 16px;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-          padding: 12px 14px;
-          backdrop-filter: blur(12px);
-          border: 1px solid rgba(0, 0, 0, 0.06);
-          min-width: 260px;
-          animation: float-card-in 0.25s ease;
+          background: oklch(100% 0.005 85 / 0.96);
+          border-radius: 20px;
+          box-shadow: var(--shadow-md);
+          padding: 14px 16px;
+          backdrop-filter: blur(16px);
+          border: 1px solid oklch(88% 0.02 255 / 0.4);
+          min-width: 280px;
+          animation: float-card-in 0.3s cubic-bezier(0.22, 1, 0.36, 1);
         }
         .floating-text-input-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 8px;
+          margin-bottom: 10px;
+          font-family: var(--font-display);
           font-size: 12px;
           font-weight: 600;
           color: var(--ink-600);
@@ -822,170 +832,182 @@ export function TripRecorder() {
           display: flex;
           align-items: center;
           justify-content: center;
-          width: 24px;
-          height: 24px;
+          width: 26px;
+          height: 26px;
           border: 0;
-          border-radius: 6px;
+          border-radius: 8px;
           background: transparent;
           color: var(--ink-400);
           cursor: pointer;
+          transition: all 0.2s ease;
         }
         .floating-text-input-close:hover {
           background: var(--ink-100);
-          color: var(--ink-600);
+          color: var(--ink-700);
         }
 
         /* Recorder controls row */
         .floating-recorder-controls {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 14px;
         }
+
+        /* Mic button — warm coral, organic feel */
         .floating-recorder-btn {
           position: relative;
-          width: 56px;
-          height: 56px;
+          width: 60px;
+          height: 60px;
           border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          transition: all 200ms ease;
-          border: 2px solid #ef4444;
-          background: var(--white);
-          color: #ef4444;
-          box-shadow: 0 4px 16px rgba(239, 68, 68, 0.15);
+          transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+          border: 0;
+          background: linear-gradient(145deg, var(--coral-500), var(--coral-600));
+          color: var(--white);
+          box-shadow: 0 6px 20px oklch(60% 0.12 55 / 0.25);
         }
         .floating-recorder-btn:hover {
-          transform: scale(1.08);
-          box-shadow: 0 6px 24px rgba(239, 68, 68, 0.22);
+          transform: scale(1.06);
+          box-shadow: 0 8px 28px oklch(60% 0.12 55 / 0.32);
+        }
+        .floating-recorder-btn:active {
+          transform: scale(0.96);
         }
         .floating-recorder-btn.is-recording {
-          background: #ef4444;
-          color: white;
-          border-color: #ef4444;
+          background: linear-gradient(145deg, var(--coral-600), oklch(55% 0.14 25));
+          box-shadow: 0 6px 24px oklch(55% 0.14 25 / 0.35);
         }
         .floating-recorder-btn.is-recording::after {
           content: "";
           position: absolute;
-          width: 56px;
-          height: 56px;
+          inset: -4px;
           border-radius: 50%;
-          border: 2px solid #ef4444;
-          animation: recorder-pulse 1.5s ease-out infinite;
+          border: 2.5px solid var(--coral-400);
+          animation: recorder-pulse 1.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
         }
         @keyframes recorder-pulse {
-          0% { transform: scale(1); opacity: 0.6; }
-          100% { transform: scale(1.6); opacity: 0; }
+          0% { transform: scale(1); opacity: 0.5; }
+          100% { transform: scale(1.45); opacity: 0; }
         }
-        .floating-text-toggle {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          transition: all 150ms ease;
-          border: 1px solid var(--ink-200);
-          background: rgba(255, 255, 255, 0.95);
-          color: var(--ink-600);
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-        }
-        .floating-text-toggle:hover {
-          background: var(--white);
-          transform: scale(1.05);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
+
+        /* Secondary buttons */
+        .floating-text-toggle,
         .floating-clear-btn {
-          width: 40px;
-          height: 40px;
+          width: 42px;
+          height: 42px;
           border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          transition: all 150ms ease;
+          transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
           border: 1px solid var(--ink-200);
-          background: rgba(255, 255, 255, 0.95);
-          color: var(--ink-500);
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+          background: oklch(100% 0.005 85 / 0.92);
+          color: var(--ink-600);
+          box-shadow: var(--shadow-sm);
         }
+        .floating-text-toggle:hover,
         .floating-clear-btn:hover {
           background: var(--white);
-          color: #ef4444;
-          transform: scale(1.05);
+          transform: scale(1.06);
+          box-shadow: var(--shadow-md);
+        }
+        .floating-clear-btn:hover {
+          color: var(--red-500);
+          border-color: oklch(85% 0.04 25 / 0.4);
         }
 
         /* Shared input styles */
         .recorder-media-input {
           display: flex;
           align-items: center;
-          gap: 8px;
-          padding: 6px 10px;
+          gap: 10px;
+          padding: 8px 12px;
           border: 1px solid var(--ink-200);
-          border-radius: 10px;
+          border-radius: 12px;
           background: var(--white);
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .recorder-media-input:focus-within {
+          border-color: var(--primary-300);
+          box-shadow: 0 0 0 3px var(--primary-100);
         }
         .recorder-media-input input {
           flex: 1;
           border: 0;
           background: transparent;
-          font-size: 13px;
+          font-size: 13.5px;
           color: var(--ink-900);
           outline: none;
+          font-family: var(--font-body);
         }
         .recorder-media-input input::placeholder {
-          color: var(--ink-500);
+          color: var(--ink-400);
         }
         .recorder-media-input button {
           display: grid;
-          width: 28px;
-          height: 28px;
+          width: 30px;
+          height: 30px;
           place-items: center;
           border: 0;
-          border-radius: 8px;
-          background: var(--violet-100);
-          color: var(--violet-700);
+          border-radius: 10px;
+          background: var(--primary-100);
+          color: var(--primary-700);
           cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .recorder-media-input button:hover {
+          background: var(--primary-200);
+          transform: scale(1.05);
         }
 
+        /* Route partial hint */
         .map-route-partial-hint {
           display: flex;
           align-items: center;
           gap: 6px;
-          margin: -6px 0 10px;
-          padding: 6px 10px;
-          border-radius: 8px;
-          background: #fff8e6;
-          color: #b38600;
-          font-size: 11px;
+          margin: -4px 0 12px;
+          padding: 8px 12px;
+          border-radius: 10px;
+          background: oklch(95% 0.03 85);
+          color: oklch(55% 0.08 75);
+          font-size: 11.5px;
           font-weight: 500;
+          font-family: var(--font-display);
         }
 
+        /* Itinerary segment items */
         .map-segment-item {
           display: flex;
           align-items: center;
-          gap: 8px;
-          padding: 8px 10px;
-          border-radius: 10px;
+          gap: 10px;
+          padding: 10px 12px;
+          border-radius: 12px;
           cursor: pointer;
-          transition: background 150ms ease;
+          transition: all 0.2s ease;
           position: relative;
         }
         .map-segment-item:hover {
           background: var(--ink-50);
         }
         .map-segment-item.is-dragging {
-          opacity: 0.5;
+          opacity: 0.45;
         }
         .map-segment-drag-handle {
           display: flex;
           align-items: center;
           justify-content: center;
           cursor: grab;
-          padding: 2px;
-          border-radius: 4px;
+          padding: 4px;
+          border-radius: 6px;
+          color: var(--ink-400);
+          transition: color 0.15s ease;
+        }
+        .map-segment-drag-handle:hover {
+          color: var(--ink-600);
         }
         .map-segment-drag-handle:active {
           cursor: grabbing;
@@ -997,19 +1019,19 @@ export function TripRecorder() {
           width: 28px;
           height: 28px;
           border: 0;
-          border-radius: 6px;
+          border-radius: 8px;
           background: transparent;
           color: var(--ink-400);
           cursor: pointer;
           opacity: 0;
-          transition: opacity 150ms ease, background 150ms ease, color 150ms ease;
+          transition: all 0.2s ease;
         }
         .map-segment-item:hover .map-segment-delete {
           opacity: 1;
         }
         .map-segment-delete:hover {
-          background: #fee2e2;
-          color: #ef4444;
+          background: oklch(95% 0.03 25);
+          color: var(--red-500);
         }
       `}</style>
     </main>
