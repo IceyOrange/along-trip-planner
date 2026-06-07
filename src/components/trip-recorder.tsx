@@ -99,6 +99,7 @@ export function TripRecorder() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [rollingSummary, setRollingSummary] = useState<string | null>(null);
   const compressPendingRef = useRef(false);
+  const citySetByPlanRef = useRef(false);
 
   const autoPlanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTranscriptLenRef = useRef(0);
@@ -247,6 +248,7 @@ export function TripRecorder() {
         setPlan(data.plan);
         if (data.plan.city && typeof data.plan.city === "string") {
           setCity(data.plan.city);
+          citySetByPlanRef.current = true;
         }
       } else if (data.configured === false) {
         showNotice("AI API 未配置");
@@ -335,10 +337,19 @@ export function TripRecorder() {
     setShowTextInput(false);
     setRollingSummary(null);
     compressPendingRef.current = false;
+    citySetByPlanRef.current = false;
     asr.clear();
     lastTranscriptLenRef.current = 0;
     showNotice("已清空记录");
   }, [asr, showNotice]);
+
+  /* -------------------- Add waypoint from map -------------------- */
+
+  const handleCityDetected = useCallback((detectedCity: string) => {
+    if (!citySetByPlanRef.current && detectedCity) {
+      setCity(detectedCity);
+    }
+  }, []);
 
   /* -------------------- Add waypoint from map -------------------- */
 
@@ -548,6 +559,7 @@ export function TripRecorder() {
             onSelectWaypoint={(wpId) => setSelectedWpId(wpId)}
             onNotify={showNotice}
             onAddWaypoint={handleAddWaypoint}
+            onCityDetected={handleCityDetected}
           />
 
           {/* ===== Floating Recorder ===== */}

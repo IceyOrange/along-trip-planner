@@ -143,11 +143,10 @@ export function useXfyunRealtimeASR() {
       return;
     }
 
-    // Send end marker
+    // Send end marker as text frame (not binary) per iFlytek protocol
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
-        const endMarker = JSON.stringify({ end: true });
-        wsRef.current.send(new TextEncoder().encode(endMarker));
+        wsRef.current.send(JSON.stringify({ end: true }));
       } catch (err) {
         console.warn("[XfyunASR] failed to send end marker:", err);
       }
@@ -229,6 +228,12 @@ export function useXfyunRealtimeASR() {
             typeof msg.desc === "string"
               ? msg.desc
               : "科大讯飞 ASR 服务返回错误";
+          // 37005 = idle timeout after recording ends; treat as normal completion
+          if (errMsg.includes("37005") || errMsg.includes("idle timeout")) {
+            setStatus("completed");
+            cleanupAudio();
+            return;
+          }
           setError(errMsg);
           setStatus("error");
           cleanupAudio();

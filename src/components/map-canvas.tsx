@@ -13,6 +13,7 @@ type MapCanvasProps = {
   onSelectWaypoint: (waypointId: string) => void;
   onNotify?: (message: string) => void;
   onAddWaypoint?: (waypoint: { id: string; name: string; location: [number, number]; address?: string }) => void;
+  onCityDetected?: (city: string) => void;
 };
 
 const COLORS = ["#7167f6", "#ff8c65", "#24b59f", "#2d7ff9", "#e64980", "#fab005"];
@@ -96,6 +97,7 @@ export function MapCanvas({
   onSelectWaypoint,
   onNotify,
   onAddWaypoint,
+  onCityDetected,
 }: MapCanvasProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const [mapMode, setMapMode] = useState<"map" | "satellite">("map");
@@ -199,8 +201,9 @@ export function MapCanvas({
         });
         if (!mapRef.current) return;
         amapApiRef.current = AMap;
+        const DEFAULT_CENTER: [number, number] = [116.397428, 39.90923]; // 天安门
         const map = new AMap.Map(mapRef.current, {
-          center: [113.576677, 22.270978],
+          center: DEFAULT_CENTER,
           mapStyle: "amap://styles/normal",
           resizeEnable: true,
           viewMode: "3D",
@@ -216,6 +219,35 @@ export function MapCanvas({
 
         const geocoder = new AMap.Geocoder({ radius: 1000, extensions: "all" });
         geocoderRef.current = geocoder;
+
+        // Browser geolocation: center on user location, fallback to Tiananmen
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              const lng = pos.coords.longitude;
+              const lat = pos.coords.latitude;
+              map.setCenter([lng, lat]);
+              if (geocoderRef.current) {
+                geocoderRef.current.getAddress([lng, lat], (status: string, result: any) => {
+                  if (status === "complete" && result.regeocode?.addressComponent) {
+                    const comp = result.regeocode.addressComponent;
+                    const detectedCity = comp.city || comp.province || "";
+                    if (detectedCity) {
+                      onCityDetected?.(detectedCity);
+                    }
+                  }
+                });
+              }
+            },
+            () => {
+              // Fallback already set to Tiananmen; just notify parent of default city
+              onCityDetected?.("北京");
+            },
+            { timeout: 8000, maximumAge: 600000 },
+          );
+        } else {
+          onCityDetected?.("北京");
+        }
 
         // Click on map blank area: close panels and search nearby POIs
         map.on("click", (e: any) => {
