@@ -1320,8 +1320,10 @@ a {
 }
 
 .workspace-brand-area {
+  display: flex;
+  align-items: center;
   min-width: 0;
-  gap: 15px;
+  gap: 14px;
 }
 
 .workspace-brand-area .brand-word {
@@ -1332,6 +1334,75 @@ a {
   width: 29px;
   height: 29px;
   border-radius: 9px 9px 9px 3px;
+}
+
+/* AI Status Pill — subtle, breathing */
+.ai-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: var(--ink-50);
+  color: var(--ink-500);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: all 0.3s ease;
+}
+.ai-status-pill i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mint-500);
+  display: inline-block;
+  flex-shrink: 0;
+  transition: background 0.3s ease;
+}
+.ai-status-pill.is-thinking {
+  background: var(--primary-100);
+  color: var(--primary-700);
+}
+.ai-status-pill.is-thinking i {
+  background: var(--primary-500);
+  animation: ai-breathe 2s ease-in-out infinite;
+}
+
+/* Header Info Pill — destination + weather */
+.header-info-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 14px;
+  border-radius: 99px;
+  background: var(--white);
+  border: 1px solid var(--ink-200);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-700);
+}
+.header-info-location,
+.header-info-weather {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+}
+.header-info-location svg,
+.header-info-weather svg {
+  color: var(--primary-500);
+  flex-shrink: 0;
+}
+.header-info-weather svg {
+  color: var(--yellow-500);
+}
+.header-info-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--ink-200);
 }
 
 .header-divider {
@@ -2125,55 +2196,18 @@ a {
 .map-toolbar {
   z-index: 8;
   display: flex;
-  height: 50px;
+  height: 44px;
   flex: none;
   align-items: center;
   gap: 8px;
-  padding: 0 10px;
-  border-bottom: 1px solid oklch(90% 0.025 255, 0.68);
-  background: rgba(255, 255, 255, 0.78);
+  padding: 0 16px;
+  border-bottom: 1px solid oklch(90% 0.025 255, 0.5);
+  background: oklch(100% 0.005 85 / 0.7);
   backdrop-filter: blur(16px);
 }
 
-.location-context,
-.weather-pill {
-  display: flex;
-  align-items: center;
-  flex: none;
-}
-
-.location-context {
-  gap: 7px;
-  border: 0;
-  padding-right: 10px;
-  border-right: 1px solid var(--ink-100);
-  background: transparent;
-  cursor: pointer;
-}
-
-.location-context > span {
-  display: grid;
-  width: 29px;
-  height: 29px;
-  place-items: center;
-  border-radius: 9px;
-  color: var(--primary-600);
-  background: var(--primary-100);
-}
-
-.location-context > div {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.location-context small {
-  color: var(--ink-500);
-  font-size: 6px;
-}
-
-.location-context strong {
-  font-size: 9px;
+.map-search-spacer {
+  flex: 1;
 }
 
 .map-search {
@@ -2208,21 +2242,6 @@ a {
   background: var(--white);
   font-family: inherit;
   font-size: 6px;
-}
-
-.weather-pill {
-  gap: 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--ink-100);
-  border-radius: 9px;
-  color: var(--ink-600);
-  background: var(--white);
-  font-size: 7px;
-  font-weight: 700;
-}
-
-.weather-pill svg {
-  color: var(--yellow-500);
 }
 
 .map-canvas {
@@ -3657,9 +3676,6 @@ a {
     grid-template-columns: 255px minmax(380px, 1fr) 290px;
   }
 
-  .weather-pill span {
-    display: none;
-  }
 }
 
 @media (max-width: 1050px) {
@@ -3836,15 +3852,8 @@ a {
     height: 45px;
   }
 
-  .location-context > div,
-  .location-context > svg,
-  .weather-pill,
   .map-search kbd {
     display: none;
-  }
-
-  .location-context {
-    padding-right: 7px;
   }
 
   .map-route-status {
@@ -4343,21 +4352,6 @@ a {
 
 /* Remove old unused styles gracefully */
 .route-variant-list { display: none; }
-
-/* Map toolbar weather pill cleaner */
-.weather-pill {
-  display: flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  padding: 8px 12px !important;
-  background: rgba(255,255,255,0.9) !important;
-  border-radius: 10px !important;
-  font-size: 13px !important;
-  color: #555 !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
-}
-
-
 
 /* Route panel empty state */
 .map-route-empty {

@@ -458,16 +458,25 @@ export function TripRecorder() {
           <span className="brand-word">
             Along <small>同路</small>
           </span>
-        </div>
-
-        <div className="workspace-header-center">
-          <span className="live-collaboration">
-            <span className={`ai-indicator ${agentThinking ? "is-thinking" : ""}`} />
+          <span className={`ai-status-pill ${agentThinking ? "is-thinking" : ""}`}>
+            <i />
             {agentThinking ? "AI 规划中" : "准备就绪"}
           </span>
         </div>
 
-        <div className="workspace-header-actions" />
+        <div className="workspace-header-actions">
+          <div className="header-info-pill">
+            <span className="header-info-location">
+              <MapPin size={13} />
+              {city}
+            </span>
+            <span className="header-info-divider" />
+            <span className="header-info-weather">
+              <CloudSun size={13} />
+              {waypointResolver.weatherText || "获取天气中…"}
+            </span>
+          </div>
+        </div>
       </header>
 
       {/* ===== Body ===== */}
@@ -475,19 +484,7 @@ export function TripRecorder() {
         {/* ---- Map ---- */}
         <div className="map-workspace">
           <div className="map-toolbar">
-            <div className="location-context">
-              <span>
-                <MapPin size={16} />
-              </span>
-              <div>
-                <small>当前目的地</small>
-                <strong>{city}</strong>
-              </div>
-            </div>
-            <div className="weather-pill">
-              <CloudSun size={17} />
-              <span>{waypointResolver.weatherText || "获取天气中…"}</span>
-            </div>
+            <div className="map-search-spacer" />
           </div>
           <MapCanvas
             waypoints={resolvedWaypoints}
