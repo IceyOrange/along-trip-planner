@@ -483,9 +483,6 @@ export function TripRecorder() {
       <div className="workspace-body">
         {/* ---- Map ---- */}
         <div className="map-workspace">
-          <div className="map-toolbar">
-            <div className="map-search-spacer" />
-          </div>
           <MapCanvas
             waypoints={resolvedWaypoints}
             routePolylines={routePolylines}
