@@ -35,7 +35,8 @@ export async function GET() {
     signa,
     lang: "cn",
     punc: "1",
-    vad_eos: "2000",
+    vad_eos: "4000",
+    dwa: "wpgs",
   });
 
   const url = `wss://rtasr.xfyun.cn/v1/ws?${params.toString()}`;

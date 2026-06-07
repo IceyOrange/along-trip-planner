@@ -48,9 +48,21 @@ function downsampleBuffer(
   const newLength = Math.round(buffer.length / ratio);
   const result = new Float32Array(newLength);
   for (let i = 0; i < newLength; i++) {
-    result[i] = buffer[Math.round(i * ratio)];
+    const pos = i * ratio;
+    const left = Math.floor(pos);
+    const right = Math.min(left + 1, buffer.length - 1);
+    const frac = pos - left;
+    result[i] = buffer[left] * (1 - frac) + buffer[right] * frac;
   }
   return result;
+}
+
+function computeRMS(buffer: Float32Array): number {
+  let sum = 0;
+  for (let i = 0; i < buffer.length; i++) {
+    sum += buffer[i] * buffer[i];
+  }
+  return Math.sqrt(sum / buffer.length);
 }
 
 function floatTo16BitPCM(float32Array: Float32Array): ArrayBuffer {
@@ -78,6 +90,8 @@ export function useXfyunRealtimeASR() {
   const interimRef = useRef("");
   const transcriptRef = useRef("");
   const statusRef = useRef<XfyunASRStatus>("idle");
+  const lowVolumeStartRef = useRef<number | null>(null);
+  const lowVolumeWarnedRef = useRef(false);
 
   // Keep refs in sync with state for use in closures
   useEffect(() => {
@@ -136,6 +150,8 @@ export function useXfyunRealtimeASR() {
     setError(null);
     interimRef.current = "";
     transcriptRef.current = "";
+    lowVolumeStartRef.current = null;
+    lowVolumeWarnedRef.current = false;
   }, [cleanupAudio, cleanupWebSocket]);
 
   const stop = useCallback(() => {
@@ -323,6 +339,24 @@ export function useXfyunRealtimeASR() {
           if (statusRef.current !== "recording") return;
 
           const inputBuffer = e.inputBuffer.getChannelData(0);
+
+          // Volume check: warn if microphone input is too low
+          const rms = computeRMS(inputBuffer);
+          if (rms < 0.015) {
+            if (!lowVolumeStartRef.current) {
+              lowVolumeStartRef.current = Date.now();
+            } else if (Date.now() - lowVolumeStartRef.current > 2500 && !lowVolumeWarnedRef.current) {
+              setError("麦克风音量较低，请靠近麦克风说话");
+              lowVolumeWarnedRef.current = true;
+            }
+          } else {
+            lowVolumeStartRef.current = null;
+            if (lowVolumeWarnedRef.current) {
+              setError(null);
+              lowVolumeWarnedRef.current = false;
+            }
+          }
+
           const inputRate = audioCtx.sampleRate;
           const downsampled = downsampleBuffer(inputBuffer, inputRate, 16000);
           const pcm = floatTo16BitPCM(downsampled);
