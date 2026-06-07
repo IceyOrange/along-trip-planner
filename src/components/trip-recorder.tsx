@@ -171,7 +171,6 @@ export function TripRecorder() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scope: "route",
-          city,
           recentTurns: [
             {
               id: "turn-" + Date.now(),
@@ -210,7 +209,7 @@ export function TripRecorder() {
     } finally {
       setAgentThinking(false);
     }
-  }, [transcriptLog, city, showNotice, plan]);
+  }, [transcriptLog, showNotice, plan]);
 
   /* -------------------- Auto-trigger planning while recording -------------------- */
 
