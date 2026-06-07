@@ -577,6 +577,46 @@ function normalizePoiName(name: string): string {
     .trim();
 }
 
+/** In-memory cache for AI-generated reviews (client-side only). */
+const aiReviewCache = new Map<string, PoiReviewData>();
+
+/**
+ * Get review data for a POI — tries local database first, then falls back to AI generation.
+ * This is an async function intended for client-side use (inside React components).
+ */
+export async function getPoiReview(
+  name: string,
+  city?: string,
+): Promise<PoiReviewData | undefined> {
+  if (!name) return undefined;
+
+  // 1. Local database (fast, no network)
+  const local = findPoiReview(name);
+  if (local) return local;
+
+  // 2. AI cache
+  const cacheKey = `${city || ""}:${name}`;
+  if (aiReviewCache.has(cacheKey)) return aiReviewCache.get(cacheKey);
+
+  // 3. AI generation
+  try {
+    const res = await fetch("/api/ai/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, city }),
+    });
+    if (!res.ok) return undefined;
+    const data = await res.json();
+    if (data.review) {
+      aiReviewCache.set(cacheKey, data.review);
+      return data.review;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Find review data for a POI by name (fuzzy match).
  */

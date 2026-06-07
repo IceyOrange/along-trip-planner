@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Layers3, Navigation2, Star, Clock, MapPin, X, Banknote, Loader2, AlertCircle, RefreshCw, Plus } from "lucide-react";
 import type { Waypoint } from "@/lib/types";
-import { findPoiReview } from "@/lib/poi-reviews";
+import { getPoiReview } from "@/lib/poi-reviews";
+import type { PoiReviewData } from "@/lib/poi-reviews";
 
 type MapCanvasProps = {
   waypoints: Waypoint[];
@@ -106,6 +107,8 @@ export function MapCanvas({
   const [clickPixel, setClickPixel] = useState<{ x: number; y: number } | null>(null);
   const [mapContainerSize, setMapContainerSize] = useState({ width: 0, height: 0 });
   const [heroImageIndex, setHeroImageIndex] = useState(0);
+  const [poiReviews, setPoiReviews] = useState<Map<string, PoiReviewData>>(new Map());
+  const [selectedWpReview, setSelectedWpReview] = useState<PoiReviewData | null>(null);
   const geocoderRef = useRef<any>(null);
 
   const resolvedWaypoints = useMemo(
@@ -137,6 +140,43 @@ export function MapCanvas({
   useEffect(() => {
     setHeroImageIndex(0);
   }, [selectedWp?.id]);
+
+  // Async fetch AI review for selected waypoint
+  useEffect(() => {
+    if (!selectedWp || selectedWp.resolveStatus !== "ready") {
+      setSelectedWpReview(null);
+      return;
+    }
+    const name = selectedWp.name;
+    let cancelled = false;
+    async function load() {
+      const review = await getPoiReview(name);
+      if (!cancelled) setSelectedWpReview(review || null);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [selectedWp?.id, selectedWp?.name, selectedWp?.resolveStatus]);
+
+  // Async fetch AI reviews for clicked POIs
+  useEffect(() => {
+    if (clickedPois.length === 0) {
+      setPoiReviews(new Map());
+      return;
+    }
+    let cancelled = false;
+    async function load() {
+      const map = new Map<string, PoiReviewData>();
+      for (const poi of clickedPois) {
+        const name = poi.name || "";
+        if (!name) continue;
+        const review = await getPoiReview(name);
+        if (review) map.set(name, review);
+      }
+      if (!cancelled) setPoiReviews(map);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [clickedPois]);
 
   useEffect(() => {
     if (mapInitRef.current || !hasKey || !mapRef.current) return;
@@ -537,26 +577,23 @@ export function MapCanvas({
               )}
 
               {/* Review section */}
-              {(() => {
-                const reviewData = findPoiReview(selectedWp.name);
-                return reviewData ? (
-                  <div className="map-detail-section">
-                    <div className="map-detail-review-summary">
-                      <p>{reviewData.summary}</p>
-                    </div>
-                    <div className="map-detail-review-tags">
-                      {reviewData.tags.map((tag) => (
-                        <span key={tag} className="map-detail-review-tag">{tag}</span>
-                      ))}
-                    </div>
-                    {reviewData.tips && (
-                      <div className="map-detail-review-tip">
-                        <span>💡 {reviewData.tips}</span>
-                      </div>
-                    )}
+              {selectedWpReview && (
+                <div className="map-detail-section">
+                  <div className="map-detail-review-summary">
+                    <p>{selectedWpReview.summary}</p>
                   </div>
-                ) : null;
-              })()}
+                  <div className="map-detail-review-tags">
+                    {selectedWpReview.tags.map((tag) => (
+                      <span key={tag} className="map-detail-review-tag">{tag}</span>
+                    ))}
+                  </div>
+                  {selectedWpReview.tips && (
+                    <div className="map-detail-review-tip">
+                      <span>💡 {selectedWpReview.tips}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Action button */}
               {onAddWaypoint && selectedWp.location && (
@@ -658,7 +695,7 @@ export function MapCanvas({
                 const distance = poiLoc ? haversineDistance(clickPosition, poiLoc) : null;
                 const poiRating = poi.rating ? parseFloat(poi.rating) : 0;
                 const poiCategory = poi.type ? String(poi.type).split(";")[0] : "";
-                const reviewData = findPoiReview(poi.name);
+                const reviewData = poiReviews.get(poi.name);
                 return (
                   <div key={idx} className="map-poi-item">
                     <div className="map-poi-info">
