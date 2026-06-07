@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     waypoints,
     city1: mode === "transit" ? city1 : undefined,
     city2: mode === "transit" ? city2 : undefined,
-    show_fields: "cost|navi|polyline",
+    show_fields: "cost,navi,polyline",
   });
 
   return NextResponse.json(result, {

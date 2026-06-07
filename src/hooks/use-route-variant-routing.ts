@@ -281,7 +281,7 @@ export function useRouteVariantRouting(
 
       if (!cancelled) {
         const updatedVariant: RouteVariantSnapshot = { ...currentVariant, segments: nextSegments as RouteSegmentSnapshot[] };
-                setRoutedVariant(summarizeVariant(updatedVariant));
+        setRoutedVariant(summarizeVariant(updatedVariant));
         setIsLoading(false);
         cacheRef.current = { variantId: currentVariant.id, resolvedKey };
       }
