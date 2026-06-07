@@ -133,7 +133,7 @@ async function fetchSegmentRoute(
     return { ...segment, status: "failed" };
   }
 
-  const response = await fetch("/api/amap/route", {
+  let response = await fetch("/api/amap/route", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -145,7 +145,29 @@ async function fetchSegmentRoute(
       city2: city,
     }),
   });
-  const data = await response.json().catch(() => null);
+  let data = await response.json().catch(() => null);
+
+  // Fallback to driving when walking/bicycling exceeds AMap's range limit
+  const outOfRange = (data?.data?.info || "").includes("OVER_DIRECTION_RANGE");
+  if (outOfRange && (segment.mode === "walking" || segment.mode === "bicycling")) {
+    const drivingResponse = await fetch("/api/amap/route", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        origin: locationString(from.location),
+        destination: locationString(to.location),
+        mode: "driving",
+        city,
+        city1: city,
+        city2: city,
+      }),
+    });
+    const drivingData = await drivingResponse.json().catch(() => null);
+    if (drivingResponse.ok && drivingData?.configured !== false) {
+      response = drivingResponse;
+      data = drivingData;
+    }
+  }
 
   if (!response.ok || data?.configured === false) {
     return { ...segment, status: "failed" };
@@ -171,12 +193,14 @@ function sumSegmentNumber(
     const text = segment[key];
     if (!text) return total;
     if (text.includes("km")) return total + Number(text.replace("km", "")) * 1000;
-    if (text.includes("m")) return total + Number(text.replace("m", ""));
-    if (text.includes("h")) {
-      const [hoursPart, minutesPart] = text.split("h");
-      return total + Number(hoursPart) * 60 + Number(minutesPart?.replace("min", "") || 0);
+    if (text.includes("min")) {
+      if (text.includes("h")) {
+        const [hoursPart, minutesPart] = text.split("h");
+        return total + Number(hoursPart) * 60 + Number(minutesPart?.replace("min", "") || 0);
+      }
+      return total + Number(text.replace("min", ""));
     }
-    if (text.includes("min")) return total + Number(text.replace("min", ""));
+    if (text.includes("m")) return total + Number(text.replace("m", ""));
     if (text.includes("¥")) return total + Number(text.replace("¥", ""));
     return total;
   }, 0);
