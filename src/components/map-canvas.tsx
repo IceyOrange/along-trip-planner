@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Layers3, Navigation2, Star, Clock, MapPin, X, Banknote, Loader2, AlertCircle, RefreshCw, Plus } from "lucide-react";
+import { Layers3, Navigation2, Star, Clock, MapPin, X, Banknote, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import type { Waypoint } from "@/lib/types";
 import { getPoiReview } from "@/lib/poi-reviews";
 import type { PoiReviewData } from "@/lib/poi-reviews";
@@ -579,6 +579,23 @@ export function MapCanvas({
               {/* Review section */}
               {selectedWpReview && (
                 <div className="map-detail-section">
+                  {selectedWpReview.rating !== undefined && (
+                    <div className="map-detail-rating-bar">
+                      <div className="stars">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Star
+                            key={i}
+                            size={14}
+                            className={i < Math.round(selectedWpReview.rating!) ? "star is-filled" : "star"}
+                            fill={i < Math.round(selectedWpReview.rating!) ? "#f5b041" : "none"}
+                            color={i < Math.round(selectedWpReview.rating!) ? "#f5b041" : "var(--ink-200)"}
+                          />
+                        ))}
+                      </div>
+                      <span className="score">{selectedWpReview.rating}</span>
+                      <span className="reviews">{ratingLabel(selectedWpReview.rating)}</span>
+                    </div>
+                  )}
                   <div className="map-detail-review-summary">
                     <p>{selectedWpReview.summary}</p>
                   </div>
@@ -593,26 +610,6 @@ export function MapCanvas({
                     </div>
                   )}
                 </div>
-              )}
-
-              {/* Action button */}
-              {onAddWaypoint && selectedWp.location && (
-                <button
-                  type="button"
-                  className="map-detail-action-btn"
-                  onClick={() => {
-                    if (!selectedWp.location) return;
-                    onAddWaypoint({
-                      id: selectedWp.id,
-                      name: selectedWp.name,
-                      location: selectedWp.location,
-                      address: selectedWp.address,
-                    });
-                  }}
-                >
-                  <Plus size={16} />
-                  加入行程
-                </button>
               )}
 
               {/* Info sections */}
@@ -704,7 +701,13 @@ export function MapCanvas({
                         {distance !== null && (
                           <span className="map-poi-distance">{formatDistance(distance)}</span>
                         )}
-                        {!reviewData && poiRating > 0 && (
+                        {reviewData?.rating !== undefined && (
+                          <span className="map-poi-rating-mini">
+                            <Star size={10} fill="#ff8c00" color="#ff8c00" />
+                            {reviewData.rating}
+                          </span>
+                        )}
+                        {!reviewData?.rating && poiRating > 0 && (
                           <span className="map-poi-rating-mini">
                             <Star size={10} fill="#ff8c00" color="#ff8c00" />
                             {poi.rating}

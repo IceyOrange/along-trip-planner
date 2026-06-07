@@ -6,6 +6,7 @@ export type PoiReviewData = {
   reviewCount: number;
   tags: string[];
   tips?: string;
+  rating?: number;
 };
 
 const REVIEW_SYSTEM_PROMPT = `你是一位资深旅行达人，熟悉中国各大城市的景点、餐厅和休闲场所。
@@ -17,13 +18,15 @@ const REVIEW_SYSTEM_PROMPT = `你是一位资深旅行达人，熟悉中国各�
 2. tags: 2-3个标签，如["必游景点", "拍照圣地", "亲子友好", "美食推荐", "夜景绝美"]
 3. reviewCount: 模拟一个合理的评价数量，范围在 2000-80000 之间
 4. tips: 一句实用的游玩建议（如最佳时间、交通提示、省钱技巧等）
+5. rating: 一个 0-5 的评分，保留一位小数（如 4.2、4.7），反映该地点的综合口碑
 
 请严格返回以下 JSON 格式，不要包含任何其他文字：
 {
   "summary": "string",
   "reviewCount": number,
   "tags": ["string"],
-  "tips": "string"
+  "tips": "string",
+  "rating": number
 }`;
 
 function validateReviewContent(content: string) {
@@ -36,6 +39,8 @@ function validateReviewContent(content: string) {
       return { ok: false as const, error: "缺少 tags" };
     }
     const reviewCount = typeof json.reviewCount === "number" ? json.reviewCount : 0;
+    const rawRating = typeof json.rating === "number" ? json.rating : undefined;
+    const rating = rawRating !== undefined ? Math.max(0, Math.min(5, Number(rawRating.toFixed(1)))) : undefined;
     return {
       ok: true as const,
       value: {
@@ -43,6 +48,7 @@ function validateReviewContent(content: string) {
         reviewCount: Math.max(1000, Math.min(100_000, reviewCount)),
         tags: json.tags.filter((t: unknown) => typeof t === "string").slice(0, 4),
         tips: typeof json.tips === "string" ? json.tips : undefined,
+        rating,
       } satisfies PoiReviewData,
     };
   } catch {

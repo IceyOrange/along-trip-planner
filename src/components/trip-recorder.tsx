@@ -16,6 +16,8 @@ import {
   AlertTriangle,
   Keyboard,
   X,
+  Trash2,
+  GripVertical,
 } from "lucide-react";
 import { useXfyunRealtimeASR } from "@/hooks/use-xfyun-asr";
 import { useWaypointResolver } from "@/hooks/use-amap-data";
@@ -71,6 +73,7 @@ export function TripRecorder() {
   const [notice, setNotice] = useState<string | null>(null);
   const [mediaText, setMediaText] = useState("");
   const [showTextInput, setShowTextInput] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const autoPlanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTranscriptLenRef = useRef(0);
@@ -329,6 +332,80 @@ export function TripRecorder() {
   const sortedWaypoints =
     routedVariant?.waypoints?.slice().sort((a, b) => a.order - b.order) || [];
 
+  /* -------------------- Delete waypoint -------------------- */
+
+  const handleDeleteWaypoint = useCallback(
+    (wpId: string) => {
+      setPlan((prev) => {
+        if (!prev || !prev.routeVariants?.[0]) return prev;
+        const variant = prev.routeVariants[0];
+        const filteredWaypoints = variant.waypoints.filter((w) => w.id !== wpId);
+        const reorderedWaypoints = filteredWaypoints.map((w, i) => ({
+          ...w,
+          order: i,
+        }));
+        return {
+          ...prev,
+          routeVariants: [
+            {
+              ...variant,
+              waypoints: reorderedWaypoints,
+            },
+          ],
+        };
+      });
+      if (selectedWpId === wpId) setSelectedWpId(null);
+      showNotice("已删除地点");
+    },
+    [selectedWpId, showNotice]
+  );
+
+  /* -------------------- Drag & drop reorder -------------------- */
+
+  const handleDragStart = useCallback((e: React.DragEvent, wpId: string) => {
+    setDraggingId(wpId);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", wpId);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent, targetWpId: string) => {
+      e.preventDefault();
+      const sourceId = e.dataTransfer.getData("text/plain");
+      setDraggingId(null);
+      if (!sourceId || sourceId === targetWpId) return;
+
+      setPlan((prev) => {
+        if (!prev || !prev.routeVariants?.[0]) return prev;
+        const variant = prev.routeVariants[0];
+        const waypoints = variant.waypoints.slice();
+        const sourceIndex = waypoints.findIndex((w) => w.id === sourceId);
+        const targetIndex = waypoints.findIndex((w) => w.id === targetWpId);
+        if (sourceIndex === -1 || targetIndex === -1) return prev;
+
+        const [moved] = waypoints.splice(sourceIndex, 1);
+        waypoints.splice(targetIndex, 0, moved);
+        const reordered = waypoints.map((w, i) => ({ ...w, order: i }));
+        return {
+          ...prev,
+          routeVariants: [
+            {
+              ...variant,
+              waypoints: reordered,
+            },
+          ],
+        };
+      });
+      showNotice("已调整顺序");
+    },
+    [showNotice]
+  );
+
   /* -------------------- Render -------------------- */
 
   return (
@@ -544,7 +621,11 @@ export function TripRecorder() {
                   return (
                     <div
                       key={wp.id}
-                      className="map-segment-item"
+                      className={`map-segment-item ${draggingId === wp.id ? "is-dragging" : ""}`}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, wp.id)}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, wp.id)}
                       onClick={() => setSelectedWpId(wp.id)}
                       role="button"
                       tabIndex={0}
@@ -555,6 +636,9 @@ export function TripRecorder() {
                         }
                       }}
                     >
+                      <div className="map-segment-drag-handle" title="拖动排序">
+                        <GripVertical size={14} color="var(--ink-300)" />
+                      </div>
                       <div className="map-segment-dot">
                         <b>{idx + 1}</b>
                         {idx < sortedWaypoints.length - 1 && <i />}
@@ -576,6 +660,17 @@ export function TripRecorder() {
                           </span>
                         )}
                       </div>
+                      <button
+                        type="button"
+                        className="map-segment-delete"
+                        title="删除"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteWaypoint(wp.id);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   );
                 })}
@@ -866,6 +961,55 @@ export function TripRecorder() {
           color: #b38600;
           font-size: 11px;
           font-weight: 500;
+        }
+
+        .map-segment-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 10px;
+          border-radius: 10px;
+          cursor: pointer;
+          transition: background 150ms ease;
+          position: relative;
+        }
+        .map-segment-item:hover {
+          background: var(--ink-50);
+        }
+        .map-segment-item.is-dragging {
+          opacity: 0.5;
+        }
+        .map-segment-drag-handle {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: grab;
+          padding: 2px;
+          border-radius: 4px;
+        }
+        .map-segment-drag-handle:active {
+          cursor: grabbing;
+        }
+        .map-segment-delete {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 28px;
+          height: 28px;
+          border: 0;
+          border-radius: 6px;
+          background: transparent;
+          color: var(--ink-400);
+          cursor: pointer;
+          opacity: 0;
+          transition: opacity 150ms ease, background 150ms ease, color 150ms ease;
+        }
+        .map-segment-item:hover .map-segment-delete {
+          opacity: 1;
+        }
+        .map-segment-delete:hover {
+          background: #fee2e2;
+          color: #ef4444;
         }
       `}</style>
     </main>

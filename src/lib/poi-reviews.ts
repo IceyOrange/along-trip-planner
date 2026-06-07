@@ -9,6 +9,7 @@ export type PoiReviewData = {
   reviewCount: number;
   tags: string[]; // e.g. ["必游景点", "拍照圣地"]
   tips?: string; // optional travel tip
+  rating?: number; // 0–5, e.g. 4.5
 };
 
 export const poiReviewDatabase: Record<string, PoiReviewData> = {
@@ -19,6 +20,7 @@ export const poiReviewDatabase: Record<string, PoiReviewData> = {
     reviewCount: 128_450,
     tags: ["必游景点", "历史建筑", "文物珍藏"],
     tips: "需提前在官网预约门票，建议游览时长 4–6 小时",
+    rating: 4.9,
   },
   "天安门广场": {
     summary:
@@ -154,6 +156,7 @@ export const poiReviewDatabase: Record<string, PoiReviewData> = {
     reviewCount: 112_890,
     tags: ["亲子乐园", "童话世界", "烟花秀"],
     tips: "提前下载官方 App 查看排队时间，早享卡可提前入园",
+    rating: 4.7,
   },
   "上海生煎": {
     summary:
@@ -391,6 +394,7 @@ export const poiReviewDatabase: Record<string, PoiReviewData> = {
     reviewCount: 89_450,
     tags: ["亲子首选", "海洋生物", "烟花汇演"],
     tips: "鲸鲨馆和企鹅馆是必看，晚上 8 点烟花秀不可错过",
+    rating: 4.8,
   },
   "情侣路": {
     summary:
@@ -398,6 +402,7 @@ export const poiReviewDatabase: Record<string, PoiReviewData> = {
     reviewCount: 42_780,
     tags: ["浪漫 coastal", "免费景点", "骑行散步"],
     tips: "傍晚骑行最舒服，渔女雕像是最佳拍照点",
+    rating: 4.5,
   },
   "外伶仃岛": {
     summary:
