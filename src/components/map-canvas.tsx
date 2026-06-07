@@ -193,7 +193,7 @@ export function MapCanvas({
             geocoderRef.current.getAddress([lnglat.lng, lnglat.lat], (status: string, result: any) => {
               if (status === "complete" && result.regeocode) {
                 const pois = (result.regeocode.pois || []).filter(isTravelRelevantPoi);
-                setClickedPois(pois.slice(0, 5));
+                setClickedPois(pois.slice(0, 3));
                 setClickPosition([lnglat.lng, lnglat.lat]);
               }
             });

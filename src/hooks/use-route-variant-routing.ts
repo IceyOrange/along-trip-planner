@@ -84,6 +84,7 @@ function extractMetrics(data: unknown): RouteMetrics {
   const root = data as {
     data?: {
       route?: {
+        taxi_cost?: unknown;
         paths?: Array<Record<string, unknown>>;
         transits?: Array<Record<string, unknown>>;
       };
@@ -102,12 +103,16 @@ function extractMetrics(data: unknown): RouteMetrics {
   const cost = path.cost as Record<string, unknown> | undefined;
   const polyline = collectPolylines(path).flatMap(parsePolyline);
 
+  // AMap v5: duration is inside cost.duration, not path.duration
+  const durationRaw = cost?.duration ?? path.duration;
+
   return {
     distanceText: formatDistance(path.distance),
-    durationText: formatDuration(path.duration),
+    durationText: formatDuration(durationRaw),
     costText:
       formatCost(cost?.tolls) ||
       formatCost(cost?.taxi_cost) ||
+      formatCost(route?.taxi_cost) ||
       formatCost(path.cost) ||
       null,
     polyline: polyline.length > 0 ? polyline : undefined,
