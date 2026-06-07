@@ -472,15 +472,146 @@ export const poiReviewDatabase: Record<string, PoiReviewData> = {
 };
 
 /**
+ * Alias map for common POI short names / nicknames.
+ * Key = alias/slang, Value = canonical key in poiReviewDatabase.
+ */
+const POI_ALIASES: Record<string, string> = {
+  // 北京
+  "故宫": "故宫博物院",
+  "紫禁城": "故宫博物院",
+  "长城": "八达岭长城",
+  "万里长城": "八达岭长城",
+  "天坛": "天坛公园",
+  "鸟巢": "鸟巢(国家体育场)",
+  "国家体育场": "鸟巢(国家体育场)",
+  "水立方": "水立方(国家游泳中心)",
+  "国家游泳中心": "水立方(国家游泳中心)",
+  "南锣鼓巷": "南锣鼓巷",
+  "恭王府": "恭王府",
+  "什刹海": "什刹海",
+  "后海": "什刹海",
+  "三里屯": "三里屯太古里",
+  "太古里": "三里屯太古里",
+  "环球影城": "北京环球度假区",
+  "环球度假区": "北京环球度假区",
+  "颐和园": "颐和园",
+
+  // 上海
+  "东方明珠": "东方明珠广播电视塔",
+  "明珠塔": "东方明珠广播电视塔",
+  "外滩": "外滩",
+  "上海外滩": "外滩",
+  "迪士尼": "上海迪士尼度假区",
+  "迪士尼乐园": "上海迪士尼度假区",
+  "豫园": "豫园",
+  "上海博物馆": "上海博物馆",
+  "南京路": "南京路步行街",
+  "南京路步行街": "南京路步行街",
+  "新天地": "上海新天地",
+  "田子坊": "田子坊",
+  "武康路": "武康路",
+  "上海中心": "上海中心大厦",
+  "陆家嘴": "陆家嘴",
+
+  // 广州
+  "广州塔": "广州塔",
+  "小蛮腰": "广州塔",
+  "白云山": "白云山风景名胜区",
+  "长隆": "长隆旅游度假区",
+  "长隆欢乐世界": "长隆旅游度假区",
+  "长隆野生动物世界": "长隆旅游度假区",
+  "陈家祠": "陈家祠(广东民间工艺博物馆)",
+  "广东民间工艺博物馆": "陈家祠(广东民间工艺博物馆)",
+  "沙面": "沙面岛",
+  "沙面岛": "沙面岛",
+  "北京路": "北京路步行街",
+  "北京路步行街": "北京路步行街",
+  "上下九": "上下九步行街",
+  "上下九步行街": "上下九步行街",
+  "珠江夜游": "珠江夜游",
+  "圣心大教堂": "石室圣心大教堂",
+  "石室": "石室圣心大教堂",
+
+  // 深圳
+  "世界之窗": "世界之窗",
+  "欢乐谷": "深圳欢乐谷",
+  "深圳湾": "深圳湾公园",
+  "深圳湾公园": "深圳湾公园",
+  "东部华侨城": "东部华侨城",
+  "华侨城": "东部华侨城",
+  "大梅沙": "大梅沙海滨公园",
+  "大梅沙海滨公园": "大梅沙海滨公园",
+  "莲花山": "莲花山公园",
+  "莲花山公园": "莲花山公园",
+  "华强北": "华强北商业街",
+  "华强北商业街": "华强北商业街",
+  "梧桐山": "梧桐山风景名胜区",
+  "梧桐山风景名胜区": "梧桐山风景名胜区",
+  "中英街": "中英街",
+  "较场尾": "较场尾海滩",
+  "较场尾海滩": "较场尾海滩",
+
+  // 珠海
+  "长隆海洋王国": "长隆海洋王国",
+  "海洋王国": "长隆海洋王国",
+  "情侣路": "情侣路",
+  "珠海渔女": "珠海渔女",
+  "渔女": "珠海渔女",
+  "外伶仃岛": "外伶仃岛",
+  "伶仃岛": "外伶仃岛",
+  "东澳岛": "东澳岛",
+  "日月贝": "珠海大剧院",
+  "珠海大剧院": "珠海大剧院",
+  "湾仔海鲜": "湾仔海鲜街",
+  "湾仔海鲜街": "湾仔海鲜街",
+  "御温泉": "御温泉",
+  "励骏庞都": "励骏庞都广场",
+  "励骏庞都广场": "励骏庞都广场",
+};
+
+function normalizePoiName(name: string): string {
+  return name
+    .replace(/[（(].*?[）)]/g, "")   // 去掉括号及内容
+    .replace(/[-—–].*$/, "")                  // 去掉横杠及后面内容
+    .replace(/[\/\\].*$/, "")                // 去掉斜杠及后面内容
+    .trim();
+}
+
+/**
  * Find review data for a POI by name (fuzzy match).
  */
 export function findPoiReview(name: string): PoiReviewData | undefined {
   if (!name) return undefined;
-  // Exact match
+
+  // 1. Exact match
   if (poiReviewDatabase[name]) return poiReviewDatabase[name];
-  // Partial match: check if any key is contained in the name
+
+  // 2. Alias match
+  const aliasKey = POI_ALIASES[name];
+  if (aliasKey && poiReviewDatabase[aliasKey]) {
+    return poiReviewDatabase[aliasKey];
+  }
+
+  // 3. Normalized exact match
+  const normalized = normalizePoiName(name);
+  if (normalized !== name && poiReviewDatabase[normalized]) {
+    return poiReviewDatabase[normalized];
+  }
+  const normalizedAlias = POI_ALIASES[normalized];
+  if (normalizedAlias && poiReviewDatabase[normalizedAlias]) {
+    return poiReviewDatabase[normalizedAlias];
+  }
+
+  // 4. Partial match: check if any key is contained in the name (or vice versa)
   for (const [key, data] of Object.entries(poiReviewDatabase)) {
     if (name.includes(key) || key.includes(name)) return data;
   }
+
+  // 5. Normalized partial match
+  for (const [key, data] of Object.entries(poiReviewDatabase)) {
+    const normKey = normalizePoiName(key);
+    if (normalized.includes(normKey) || normKey.includes(normalized)) return data;
+  }
+
   return undefined;
 }
