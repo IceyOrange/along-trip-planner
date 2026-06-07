@@ -130,11 +130,16 @@ export function useWaypointResolver(
         }
 
         setIsConfigured(true);
-        const results = await Promise.all(
-          inputs.map((wp) => searchWaypoint(wp.name, wp.id, wp.order, targetCity)),
-        );
-        if (cancelled || currentResolveId !== resolveIdRef.current) return;
-        setWaypoints(results);
+        const resolved: Waypoint[] = [];
+        for (let i = 0; i < inputs.length; i += 3) {
+          const batch = inputs.slice(i, i + 3);
+          const batchResults = await Promise.all(
+            batch.map((wp) => searchWaypoint(wp.name, wp.id, wp.order, targetCity)),
+          );
+          if (cancelled || currentResolveId !== resolveIdRef.current) return;
+          resolved.push(...batchResults);
+        }
+        setWaypoints(resolved);
 
       } catch {
         if (!cancelled) setError("地图服务暂时不可用");

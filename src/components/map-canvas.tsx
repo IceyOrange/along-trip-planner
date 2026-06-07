@@ -9,6 +9,7 @@ import type { PoiReviewData } from "@/lib/poi-reviews";
 type MapCanvasProps = {
   waypoints: Waypoint[];
   routePolylines?: [number, number][][];
+  segments?: Array<{ polyline?: [number, number][]; status: string; fromWaypointId?: string; toWaypointId?: string }>;
   selectedWaypointId: string | null;
   onSelectWaypoint: (waypointId: string) => void;
   onNotify?: (message: string) => void;
@@ -93,6 +94,7 @@ function parsePoiLocation(poi: any): [number, number] | null {
 export function MapCanvas({
   waypoints,
   routePolylines = [],
+  segments,
   selectedWaypointId,
   onSelectWaypoint,
   onNotify,
@@ -317,15 +319,69 @@ export function MapCanvas({
     });
     markersRef.current = markers;
 
-    const polylinePath =
-      routePath.length >= 2
-        ? routePath
-        : resolvedWaypoints.map((wp) => wp.location).filter(Boolean);
+    const isSatellite = mapMode === "satellite";
+    const allPolylines: any[] = [];
 
-    if (polylinePath.length >= 2) {
-      const isSatellite = mapMode === "satellite";
+    // Build a map from waypoint id to location for fallback dashed lines
+    const locationById = new Map<string, [number, number]>();
+    resolvedWaypoints.forEach((wp) => {
+      if (wp.location) locationById.set(wp.id, wp.location);
+    });
 
-      // Border layer (outline)
+    if (segments && segments.length > 0) {
+      // Draw each segment individually
+      segments.forEach((seg) => {
+        const fromLoc = seg.fromWaypointId ? locationById.get(seg.fromWaypointId) : undefined;
+        const toLoc = seg.toWaypointId ? locationById.get(seg.toWaypointId) : undefined;
+
+        if (seg.polyline && seg.polyline.length >= 2 && seg.status === "ready") {
+          const path = seg.polyline;
+          const border = new AMap.Polyline({
+            path,
+            strokeColor: isSatellite ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.9)",
+            strokeWeight: 7,
+            strokeOpacity: 0.9,
+            lineJoin: "round",
+            zIndex: 0,
+          });
+          const glow = new AMap.Polyline({
+            path,
+            strokeColor: isSatellite ? "#FFD54F" : "#7167f6",
+            strokeWeight: 12,
+            strokeOpacity: 0.15,
+            lineJoin: "round",
+            zIndex: 1,
+          });
+          const main = new AMap.Polyline({
+            path,
+            strokeColor: isSatellite ? "#FFD54F" : "#7167f6",
+            strokeWeight: 5,
+            strokeOpacity: isSatellite ? 0.8 : 0.6,
+            lineJoin: "round",
+            showDir: true,
+            zIndex: 2,
+          });
+          map.add([border, glow, main]);
+          allPolylines.push(border, glow, main);
+        } else if (fromLoc && toLoc) {
+          // Dashed fallback for failed/pending segments
+          const dashed = new AMap.Polyline({
+            path: [fromLoc, toLoc],
+            strokeColor: "#999",
+            strokeWeight: 3,
+            strokeStyle: "dashed",
+            strokeDasharray: [5, 5],
+            lineJoin: "round",
+            zIndex: 1,
+          });
+          map.add(dashed);
+          allPolylines.push(dashed);
+        }
+      });
+    } else if (routePath.length >= 2) {
+      // Legacy flat-polyline fallback
+      const polylinePath = routePath;
+
       const borderPolyline = new AMap.Polyline({
         path: polylinePath,
         strokeColor: isSatellite ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.9)",
@@ -335,7 +391,6 @@ export function MapCanvas({
         zIndex: 0,
       });
 
-      // Glow layer (wider, softer)
       const glowPolyline = new AMap.Polyline({
         path: polylinePath,
         strokeColor: isSatellite ? "#FFD54F" : "#7167f6",
@@ -345,7 +400,6 @@ export function MapCanvas({
         zIndex: 1,
       });
 
-      // Main layer
       const mainPolyline = new AMap.Polyline({
         path: polylinePath,
         strokeColor: isSatellite ? "#FFD54F" : "#7167f6",
@@ -357,22 +411,24 @@ export function MapCanvas({
       });
 
       map.add([borderPolyline, glowPolyline, mainPolyline]);
-      polylinesRef.current = [borderPolyline, glowPolyline, mainPolyline];
-
-      // Fit view to show all waypoints
-      const locationHash = resolvedWaypoints
-        .map(wp => wp.location ? `${wp.location[0].toFixed(4)},${wp.location[1].toFixed(4)}` : "")
-        .join("|");
-      if (locationHash !== lastFitHashRef.current && polylinePath.length >= 2) {
-        lastFitHashRef.current = locationHash;
-        map.setFitView(
-          [...markers, glowPolyline, mainPolyline, borderPolyline],
-          false,
-          [60, 60, 120, 60],
-        );
-      }
+      allPolylines.push(borderPolyline, glowPolyline, mainPolyline);
     }
-  }, [resolvedWaypoints, routePath, mapMode]);
+
+    polylinesRef.current = allPolylines;
+
+    // Fit view to show all waypoints
+    const locationHash = resolvedWaypoints
+      .map(wp => wp.location ? `${wp.location[0].toFixed(4)},${wp.location[1].toFixed(4)}` : "")
+      .join("|");
+    if (locationHash !== lastFitHashRef.current && allPolylines.length > 0) {
+      lastFitHashRef.current = locationHash;
+      map.setFitView(
+        [...markers, ...allPolylines],
+        false,
+        [60, 60, 120, 60],
+      );
+    }
+  }, [resolvedWaypoints, routePath, segments, mapMode]);
 
   const changeMode = (mode: "map" | "satellite") => {
     setMapMode(mode);

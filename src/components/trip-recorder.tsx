@@ -104,19 +104,24 @@ export function TripRecorder() {
   const autoPlanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTranscriptLenRef = useRef(0);
 
+  const transcriptLogRef = useRef(transcriptLog);
+  transcriptLogRef.current = transcriptLog;
+  const planRef = useRef(plan);
+  planRef.current = plan;
+
   /* -------------------- Conversation compression -------------------- */
 
   const compressConversation = useCallback(async () => {
-    if (compressPendingRef.current || transcriptLog.length < 6) return;
+    if (compressPendingRef.current || transcriptLogRef.current.length < 6) return;
     compressPendingRef.current = true;
-    console.log("[TripRecorder] compressing conversation, entries:", transcriptLog.length);
+    console.log("[TripRecorder] compressing conversation, entries:", transcriptLogRef.current.length);
     try {
       const response = await fetch("/api/ai/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scope: "compress",
-          recentTurns: transcriptLog.map((t) => ({
+          recentTurns: transcriptLogRef.current.map((t) => ({
             id: t.id,
             userId: "user",
             userName: "讨论",
@@ -142,18 +147,20 @@ export function TripRecorder() {
     } finally {
       compressPendingRef.current = false;
     }
-  }, [transcriptLog]);
+  }, []);
 
   /* -------------------- Auto-compress when transcript grows -------------------- */
 
   useEffect(() => {
-    if (transcriptLog.length >= 6 && !compressPendingRef.current) {
+    if (transcriptLog.length >= 6 && !compressPendingRef.current && asr.status !== "recording" && asr.status !== "connecting") {
       const timer = setTimeout(() => {
         void compressConversation();
       }, 800);
       return () => clearTimeout(timer);
+    } else {
+      return () => {};
     }
-  }, [transcriptLog, compressConversation]);
+  }, [transcriptLog, compressConversation, asr.status]);
 
   /* -------------------- Notice helper -------------------- */
 
@@ -198,12 +205,14 @@ export function TripRecorder() {
   /* -------------------- AI Planning -------------------- */
 
   const requestPlan = useCallback(async (extraText?: string) => {
-    const logText = transcriptLog.map((t) => t.text).join("\n");
+    const recentLogs = transcriptLogRef.current.slice(-15);
+    const logText = recentLogs.map((t) => t.text).join("\n");
     const allText = logText + (extraText ? "\n" + extraText : "");
-    if (allText.trim().length < 3) return;
+    const trimmedAllText = allText.length > 3000 ? allText.slice(0, 3000) + "\n…" : allText;
+    if (trimmedAllText.trim().length < 3) return;
 
     // Collect existing waypoints to pass as context to AI
-    const currentVariant = plan?.routeVariants?.[0];
+    const currentVariant = planRef.current?.routeVariants?.[0];
     const existingWaypoints = currentVariant?.waypoints
       ?.filter((wp) => wp.resolveStatus === "ready" || wp.resolveStatus === "searching")
       ?.map((wp) => ({
@@ -216,7 +225,7 @@ export function TripRecorder() {
         location: wp.location,
       })) || [];
 
-    console.log("[TripRecorder] requesting plan with text:", allText.trim().slice(0, 200), "existing:", existingWaypoints.length);
+    console.log("[TripRecorder] requesting plan with text:", trimmedAllText.trim().slice(0, 200), "existing:", existingWaypoints.length);
     showNotice("AI 正在规划行程…");
     setAgentThinking(true);
     try {
@@ -230,7 +239,7 @@ export function TripRecorder() {
               id: "turn-" + Date.now(),
               userId: "user",
               userName: "讨论",
-              text: allText.trim(),
+              text: trimmedAllText.trim(),
               createdAt: Date.now(),
             },
           ],
@@ -265,12 +274,18 @@ export function TripRecorder() {
     } finally {
       setAgentThinking(false);
     }
-  }, [transcriptLog, showNotice, plan]);
+  }, [showNotice]);
 
   /* -------------------- Auto-trigger planning while recording -------------------- */
 
   useEffect(() => {
-    if (asr.status !== "recording" || !asr.transcript.trim() || agentThinking) return;
+    if (asr.status !== "recording" || !asr.transcript.trim() || agentThinking) {
+      if (autoPlanTimerRef.current) {
+        clearTimeout(autoPlanTimerRef.current);
+        autoPlanTimerRef.current = null;
+      }
+      return;
+    }
 
     const currentLen = asr.transcript.length;
     if (currentLen <= lastTranscriptLenRef.current) return;
@@ -284,15 +299,14 @@ export function TripRecorder() {
       lastTranscriptLenRef.current = asr.transcript.length;
       void requestPlan(asr.transcript);
     }, 3000);
-  }, [asr.transcript, asr.status, agentThinking, requestPlan]);
 
-  useEffect(() => {
     return () => {
       if (autoPlanTimerRef.current) {
         clearTimeout(autoPlanTimerRef.current);
+        autoPlanTimerRef.current = null;
       }
     };
-  }, []);
+  }, [asr.transcript, asr.status, agentThinking, requestPlan]);
 
   const submitMediaText = useCallback(() => {
     const text = mediaText.trim();
@@ -435,6 +449,13 @@ export function TripRecorder() {
       .filter((polyline): polyline is [number, number][] => Boolean(polyline)) ||
     [];
 
+  const segmentPolylines = routedVariant?.segments?.map((s) => ({
+    polyline: s.polyline,
+    status: s.status,
+    fromWaypointId: s.fromWaypointId,
+    toWaypointId: s.toWaypointId,
+  })) || [];
+
   /* -------------------- Derived UI state -------------------- */
 
   const hasRoute = Boolean(routedVariant && routedVariant.waypoints.length > 0);
@@ -555,6 +576,7 @@ export function TripRecorder() {
           <MapCanvas
             waypoints={resolvedWaypoints}
             routePolylines={routePolylines}
+            segments={segmentPolylines}
             selectedWaypointId={selectedWpId}
             onSelectWaypoint={(wpId) => setSelectedWpId(wpId)}
             onNotify={showNotice}

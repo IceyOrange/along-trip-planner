@@ -199,7 +199,7 @@ ${CORE_CONSTRAINTS}
   }
 
   const existingCtx = existingWaypoints && existingWaypoints.length > 0
-    ? `\n【以下地点已确定要加入行程，必须保留】\n${existingWaypoints.map((wp, i) => `${i + 1}. ${wp.name}${wp.description ? `（${wp.description}）` : ""}`).join("\n")}\n\n请在以上已确定地点的基础上，根据用户新讨论的内容补充或调整行程。不要删除已确定的地点，除非用户明确说不想去。新路线应包含所有已确定地点。`
+    ? `\n【以下地点已在当前行程中，供参考】\n${existingWaypoints.map((wp, i) => `${i + 1}. ${wp.name}${wp.description ? `（${wp.description}）` : ""}`).join("\n")}\n\n请根据用户新讨论的内容调整行程。如果用户明确说不想去某个地点，请从行程中移除该地点。如果用户新增地点，请补充到合适位置。`
     : "";
 
   return `你是旅行规划助手的路线规划模块。根据用户讨论自由理解意图，生成 1 条最优旅行路线。
@@ -322,28 +322,18 @@ export async function POST(request: Request) {
   // Merge existing waypoints with AI-returned waypoints
   // - Match by normalized name to avoid duplicates
   // - Preserve existing waypoint id, location, address
-  // - Existing waypoints that AI didn't return are appended at the end
   const normalized = (s: string) => s.replace(/[\s·]/g, "").toLowerCase();
   const mergedVariants = validatedVariants.map(variant => {
     const aiWps = variant.waypoints;
     const merged: PlanningWaypointSnapshot[] = [];
-    const usedExisting = new Set<string>();
 
     for (const aiWp of aiWps) {
       const aiName = normalized(aiWp.name);
       const match = existingWaypoints.find(ew => normalized(ew.name) === aiName || ew.name.includes(aiWp.name) || aiWp.name.includes(ew.name));
       if (match) {
         merged.push({ ...aiWp, id: match.id, name: match.name, location: match.location, address: match.address, resolveStatus: match.resolveStatus });
-        usedExisting.add(match.id);
       } else {
         merged.push(aiWp);
-      }
-    }
-
-    // Append any existing waypoints that AI missed
-    for (const ew of existingWaypoints) {
-      if (!usedExisting.has(ew.id)) {
-        merged.push(ew);
       }
     }
 

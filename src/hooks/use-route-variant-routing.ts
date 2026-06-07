@@ -272,19 +272,37 @@ export function useRouteVariantRouting(
 
     const currentVariant: RouteVariantSnapshot = variant;
 
+    async function fetchSegmentRouteBatch(
+      segments: RouteSegmentSnapshot[],
+      waypointById: Map<string, Waypoint>,
+      city: string,
+    ): Promise<RouteSegmentSnapshot[]> {
+      const results: RouteSegmentSnapshot[] = [];
+      for (let i = 0; i < segments.length; i += 3) {
+        const batch = segments.slice(i, i + 3);
+        const batchResults = await Promise.all(
+          batch.map((segment) => {
+            const from = waypointById.get(segment.fromWaypointId);
+            const to = waypointById.get(segment.toWaypointId);
+            if (!from || !to) return Promise.resolve(segment);
+            return fetchSegmentRoute(segment, from, to, city).catch(() => ({
+              ...segment,
+              status: "failed" as const,
+            }));
+          }),
+        );
+        results.push(...batchResults);
+      }
+      return results;
+    }
+
     async function resolveRoutes() {
       setIsLoading(true);
       const waypointById = new Map(resolvedWaypoints.map((waypoint) => [waypoint.id, waypoint]));
-      const nextSegments = await Promise.all(
-        currentVariant.segments.map((segment) => {
-          const from = waypointById.get(segment.fromWaypointId);
-          const to = waypointById.get(segment.toWaypointId);
-          if (!from || !to) return Promise.resolve(segment);
-          return fetchSegmentRoute(segment, from, to, city).catch(() => ({
-            ...segment,
-            status: "failed" as const,
-          }));
-        }),
+      const nextSegments = await fetchSegmentRouteBatch(
+        currentVariant.segments,
+        waypointById,
+        city,
       );
 
       if (!cancelled) {
